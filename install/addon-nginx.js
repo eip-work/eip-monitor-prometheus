@@ -1,30 +1,45 @@
 async function installGrafanaDb (context, dbUrl, inputName) {
-  await context.$grafanaDashboards.get(dbUrl).then(resp => {
-    console.log(dbUrl, resp.data)
-    let dashboardCreate = {
-      dashboard: resp.data,
-      folderId: 0,
-      inputs: [{name: inputName, type: "datasource", pluginId: "prometheus", value: "Prometheus"}],
-      overwrite: true
-    }
-    context.$grafanaApi.post(`${context.namespace}_k8s_namespace/api/dashboards/import`, dashboardCreate).then(resp => {
-      console.log('创建 dashboard 成功', resp.data)
-      context.$notify({
-        title: '创建 dashboard 成功',
-        message: dbUrl,
-        type: 'success',
-        duration: 5000
-      });
+  let db = undefined
+  try {
+    db = JSON.parse(context.boundle.data[dbUrl])
+  } catch(e) {
+    context.$notify({
+      title: `Dashboard ${dbUrl} 格式不对`,
+      message: '错误原因: ' + e,
+      type: 'success',
+      duration: 0
     })
+  }
+  let dashboardCreate = {
+    dashboard: db,
+    folderId: 0,
+    inputs: [{name: inputName, type: "datasource", pluginId: "prometheus", value: "Prometheus"}],
+    overwrite: true
+  }
+  await context.$monitorApi.post('/namespace/kube-system/service/monitor-grafana/port/3000/api/dashboards/import', dashboardCreate, {auth: {
+    username: 'admin',
+    password: 'jmx09KT23BClpa7xzs'
+  }}).then(resp => {
+    console.log('创建 dashboard 成功', resp.data)
+    context.$notify({
+      title: '创建 dashboard 成功',
+      message: dbUrl,
+      type: 'success',
+      duration: 5000
+    });
   }).catch(e => {
-    context.$message.error(`为 ${context.namespace} 初始化 grafana 失败: ` + e)
+    console.error(`创建 dashboard 失败 ${dbUrl}:  ${e}`)
   })
 }
 
 let addon = {
   preFlight: function (context) {
     console.log('preFlight 2 - ' + context.namespace)
-    context.$grafanaApi.get(`${context.namespace}_k8s_namespace/api/datasources`).then(async resp => {
+    context.$monitorApi.get(`/namespace/${context.namespace}/service/monitor-grafana/port/3000/api/datasources`, {auth: {
+      username: 'admin',
+      password: 'jmx09KT23BClpa7xzs'
+    }}).then(async resp => {
+      console.log('获取到 grafana 中已经安装的 dashboard', resp.data)
       let creatingDatasource = true
       for (let item of resp.data) {
         if (item.url === 'http://monitor-prometheus:9090') {
@@ -50,7 +65,10 @@ let addon = {
           version: 1,
           withCredentials: false
         }
-        await context.$grafanaApi.post(`${context.namespace}_k8s_namespace/api/datasources`, datasource).then(resp => {
+        await context.$monitorApi.post(`/namespace/${context.namespace}/service/monitor-grafana/port/3000/api/datasources`, datasource, {auth: {
+          username: 'admin',
+          password: 'jmx09KT23BClpa7xzs'
+        }}).then(resp => {
           context.$notify({
             title: '创建 datasource 成功',
             message: `为 ${context.namespace} 的grafana 创建 prometheus datasource 成功`,
@@ -62,9 +80,12 @@ let addon = {
           context.$message.error('调用 grafana 接口创建 datasource 失败: ' + e)
         })
       } else {
-        console.log(`无需为 ${context.namespace} 初始化 grafana prometheus datasource`)
+        context.$notify({title: '无需重复创建', message: 'promethues datasource 已存在，无需重复创建', type: 'success'})
       }
-      context.$grafanaApi.get(`${context.namespace}_k8s_namespace/api/search?mode=tree&skipRecent=true&skipStarred=true&starred=false`).then(async resp => {
+      context.$monitorApi.get(`/namespace/${context.namespace}/monitor-grafana/port/3000/api/search?mode=tree&skipRecent=true&skipStarred=true&starred=false`, {auth: {
+        username: 'admin',
+        password: 'jmx09KT23BClpa7xzs'
+      }}).then(async resp => {
         let dbs = {
           'db/jvm-micrometer': {
             json: 'scoped/4701.json',
@@ -83,10 +104,12 @@ let addon = {
           console.log(db.uri)
           delete dbs[db.uri]
         }
+        if (resp.data.length > 0) {
+          context.$notify({title: '无需重复创建', message: `Grafana 中已存在 ${resp.data.length} 个 Dashboard，将不会重复创建`, type: 'warning'})
+        }
         for (let i in dbs) {
           await installGrafanaDb(context, dbs[i].json, dbs[i].ds)
         }
-        this.enabled = true
       })
     }).catch(e => {
       console.error(e)
@@ -96,7 +119,6 @@ let addon = {
         context.$message.error('调用 grafana 接口失败: ' + e)
       }
     })
-    // context.$notify({ title: 'monitor-2', message: 'preFlight 2 - ' + context.namespace})
   },
   nodes: [],
   pods: [],
@@ -106,49 +128,42 @@ let addon = {
 async function openNginxMonitor (context) {
   console.log('openNginxMonitor')
   let dashboardUrl = undefined
-  let failed = false
-  this.loading = true
-  await context.$grafanaApi.get(`${context.namespace}_k8s_namespace/api/search?mode=tree&query=Nginx VTS Stats&skipRecent=true&skipStarred=true&starred=false`).then(resp => {
+  let _this = this
+  _this.loading = true
+  context.$monitorApi.get(`${context.namespace}_k8s_namespace/api/search?mode=tree&query=Nginx VTS Stats&skipRecent=true&skipStarred=true&starred=false`).then(resp => {
     for (let item of resp.data) {
       if (item.uri === 'db/nginx-vts-stats') {
         dashboardUrl = item.url
+        return Promise.resolve(item.url)
       }
     }
+    return Promise.reject('未找到 dashbord: db/nginx-vts-stats')
   }).catch(e => {
     console.log(e)
     context.$message.error('调用 grafana 接口失败: ' + e)
-    failed = true
-    this.loading = false
-  })
-  if (failed) return
-  let start = context.dateFns.getTime(context.dateFns.addHours(new Date(), -12)) / 1000
-  let end = context.dateFns.getTime(new Date()) / 1000
-  let instance = undefined
-  await context.$grafanaApi.get(`${context.namespace}_k8s_namespace/api/datasources/proxy/Prometheus/api/v1/series?match[]=nginx_server_bytes&start=${start}&end=${end}`).then(resp => {
-    for (let item of resp.data.data) {
-      if (item.instance.indexOf(context.podIpAddress) === 0) {
-        instance = item.instance
-        break
+    _this.loading = false
+  }).then(dashboardUrl => {
+    let start = context.dateFns.getTime(context.dateFns.addHours(new Date(), -12)) / 1000
+    let end = context.dateFns.getTime(new Date()) / 1000
+    let instance = undefined
+    return context.$monitorApi.get(`${context.namespace}_k8s_namespace/api/datasources/proxy/Prometheus/api/v1/series?match[]=nginx_server_bytes&start=${start}&end=${end}`).then(resp => {
+      for (let item of resp.data.data) {
+        if (item.instance.indexOf(context.podIpAddress) === 0) {
+          instance = item.instance
+          return Promise.resolve({dashboardUrl, instance})
+        }
       }
-    }
-  }).catch(e => {
-    console.log(e)
-    context.$message.error('调用 grafana 接口失败: ' + e)
-    this.loading = false
-    failed = true
+      context.$message.error('grafana 中未找到 12 小时内的监控数据')
+      _this.loading = false
+    })
+  }).then(({dashboardUrl, instance}) => {
+    // http://monitor-grafana.pzy-test.liangzixin.xyz/grafana/pzy-test_k8s_namespace/d/maEwS8GWk/nginx-vts-stats?orgId=1&var-Instance=192.168.18.224:9913&var-Host=All&var-Upstream=All
+    // let url = `${dashboardUrl}?orgId=1&var-application=${container.name.toUpperCase()}&var-instance=${instance}&var-jvm_memory_pool_heap=All&var-jvm_memory_pool_nonheap=All&from=now-1h&to=now`
+    let url = `${dashboardUrl}?orgId=1&var-Instance=${instance}&var-Host=All&var-Upstream=All&from=now-1h&to=now&kiosk=tv`
+    console.log('openNginxMonitor', url)
+    window.open(url, '_blank')
+    _this.loading = false
   })
-  if (failed) return
-  if (instance === undefined) {
-    context.$message.error('grafana 中未找到 12 小时内的监控数据')
-    this.loading = false
-    return
-  }
-  // http://monitor-grafana.pzy-test.liangzixin.xyz/grafana/pzy-test_k8s_namespace/d/maEwS8GWk/nginx-vts-stats?orgId=1&var-Instance=192.168.18.224:9913&var-Host=All&var-Upstream=All
-  // let url = `${dashboardUrl}?orgId=1&var-application=${container.name.toUpperCase()}&var-instance=${instance}&var-jvm_memory_pool_heap=All&var-jvm_memory_pool_nonheap=All&from=now-1h&to=now`
-  let url = `${dashboardUrl}?orgId=1&var-Instance=${instance}&var-Host=All&var-Upstream=All&from=now-1h&to=now&kiosk=tv`
-  console.log('openNginxMonitor', url)
-  window.open(url, '_blank')
-  this.loading = false
 }
 
 let NginxMonitor = {
