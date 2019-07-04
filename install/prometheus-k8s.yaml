@@ -57,9 +57,6 @@ spec:
           value: Viewer
         - name: GF_SECURITY_ADMIN_PASSWORD
           value: jmx09KT23BClpa7xzs
-        envFrom:
-        - configMapRef:
-            name: monitor-pinpoint-config
         volumeMounts:
         - name: grafana-persistent-storage
           mountPath: /var/lib/grafana
