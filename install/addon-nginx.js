@@ -16,7 +16,7 @@ async function installGrafanaDb (context, dbUrl, inputName) {
     inputs: [{name: inputName, type: "datasource", pluginId: "prometheus", value: "Prometheus"}],
     overwrite: true
   }
-  await context.$monitorApi.post('/namespace/kube-system/service/monitor-grafana/port/3000/api/dashboards/import', dashboardCreate, {auth: {
+  await context.$monitorApi.post(`/namespace/${context.namespace}/service/monitor-grafana/port/3000/api/dashboards/import`, dashboardCreate, {auth: {
     username: 'admin',
     password: 'jmx09KT23BClpa7xzs'
   }}).then(resp => {
@@ -82,41 +82,42 @@ let addon = {
       } else {
         context.$notify({title: '无需重复创建', message: 'promethues datasource 已存在，无需重复创建', type: 'success'})
       }
-      context.$monitorApi.get(`/namespace/${context.namespace}/monitor-grafana/port/3000/api/search?mode=tree&skipRecent=true&skipStarred=true&starred=false`, {auth: {
-        username: 'admin',
-        password: 'jmx09KT23BClpa7xzs'
-      }}).then(async resp => {
-        let dbs = {
-          'db/jvm-micrometer': {
-            json: 'scoped/4701.json',
-            ds: 'DS_PROMETHEUS'
-          },
-          'db/mysql-overview': {
-            json: 'scoped/7362.json',
-            ds: 'DS_PROMETHEUS'
-          },
-          'db/nginx-vts-stats': {
-            json: 'scoped/2949.json',
-            ds: 'DS_PROMETHEUS'
-          }
-        }
-        for (let db of resp.data) { // 不再创建已经存在的 dashboard
-          console.log(db.uri)
-          delete dbs[db.uri]
-        }
-        if (resp.data.length > 0) {
-          context.$notify({title: '无需重复创建', message: `Grafana 中已存在 ${resp.data.length} 个 Dashboard，将不会重复创建`, type: 'warning'})
-        }
-        for (let i in dbs) {
-          await installGrafanaDb(context, dbs[i].json, dbs[i].ds)
-        }
-      })
     }).catch(e => {
       console.error(e)
       if (e.response && (e.response.status === 404 || e.response.status === 502)) {
         this.$message.warning(`${this.name} 中未安装 eip 监控套件`)
       } else {
         context.$message.error('调用 grafana 接口失败: ' + e)
+      }
+    })
+    console.log('初始化 dashbord')
+    context.$monitorApi.get(`/namespace/${context.namespace}/service/monitor-grafana/port/3000/api/search?mode=tree&skipRecent=true&skipStarred=true&starred=false`, {auth: {
+      username: 'admin',
+      password: 'jmx09KT23BClpa7xzs'
+    }}).then(async resp => {
+      let dbs = {
+        'db/jvm-micrometer': {
+          json: 'resource_4701.json',
+          ds: 'DS_PROMETHEUS'
+        },
+        'db/mysql-overview': {
+          json: 'resource_7362.json',
+          ds: 'DS_PROMETHEUS'
+        },
+        'db/nginx-vts-stats': {
+          json: 'resource_2949.json',
+          ds: 'DS_PROMETHEUS'
+        }
+      }
+      for (let db of resp.data) { // 不再创建已经存在的 dashboard
+        console.log(db.uri)
+        delete dbs[db.uri]
+      }
+      if (resp.data.length > 0) {
+        context.$notify({title: '无需重复创建', message: `Grafana 中已存在 ${resp.data.length} 个 Dashboard，将不会重复创建`, type: 'warning'})
+      }
+      for (let i in dbs) {
+        await installGrafanaDb(context, dbs[i].json, dbs[i].ds)
       }
     })
   },
@@ -127,10 +128,9 @@ let addon = {
 
 async function openNginxMonitor (context) {
   console.log('openNginxMonitor')
-  let dashboardUrl = undefined
   let _this = this
   _this.loading = true
-  context.$monitorApi.get(`${context.namespace}_k8s_namespace/api/search?mode=tree&query=Nginx VTS Stats&skipRecent=true&skipStarred=true&starred=false`).then(resp => {
+  context.$monitorApi.get(`/namespace/${context.namespace}/service/monitor-grafana/port/3000/api/search?mode=tree&query=Nginx VTS Stats&skipRecent=true&skipStarred=true&starred=false`).then(resp => {
     for (let item of resp.data) {
       if (item.uri === 'db/nginx-vts-stats') {
         dashboardUrl = item.url
@@ -146,7 +146,7 @@ async function openNginxMonitor (context) {
     let start = context.dateFns.getTime(context.dateFns.addHours(new Date(), -12)) / 1000
     let end = context.dateFns.getTime(new Date()) / 1000
     let instance = undefined
-    return context.$monitorApi.get(`${context.namespace}_k8s_namespace/api/datasources/proxy/Prometheus/api/v1/series?match[]=nginx_server_bytes&start=${start}&end=${end}`).then(resp => {
+    return context.$monitorApi.get(`/namespace/${context.namespace}/service/monitor-grafana/port/3000/api/datasources/proxy/Prometheus/api/v1/series?match[]=nginx_server_bytes&start=${start}&end=${end}`).then(resp => {
       for (let item of resp.data.data) {
         if (item.instance.indexOf(context.podIpAddress) === 0) {
           instance = item.instance
