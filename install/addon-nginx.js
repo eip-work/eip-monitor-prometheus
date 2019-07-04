@@ -1,12 +1,14 @@
 async function installGrafanaDb (context, dbUrl, inputName) {
   let db = undefined
   try {
-    db = JSON.parse(context.boundle.data[dbUrl])
+    let dbStr = context.boundle.data[dbUrl]
+    console.log(dbStr)
+    db = JSON.parse(dbStr)
   } catch(e) {
     context.$notify({
       title: `Dashboard ${dbUrl} 格式不对`,
       message: '错误原因: ' + e,
-      type: 'success',
+      type: 'error',
       duration: 0
     })
   }
