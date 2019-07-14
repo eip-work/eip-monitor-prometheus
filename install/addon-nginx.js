@@ -159,7 +159,6 @@ async function openNginxMonitor (context) {
       _this.loading = false
     })
   }).then(({dashboardUrl, instance}) => {
-    // http://monitor-grafana.pzy-test.liangzixin.xyz/grafana/pzy-test_k8s_namespace/d/maEwS8GWk/nginx-vts-stats?orgId=1&var-Instance=192.168.18.224:9913&var-Host=All&var-Upstream=All
     // let url = `${dashboardUrl}?orgId=1&var-application=${container.name.toUpperCase()}&var-instance=${instance}&var-jvm_memory_pool_heap=All&var-jvm_memory_pool_nonheap=All&from=now-1h&to=now`
     let url = `${dashboardUrl}?orgId=1&var-Instance=${instance}&var-Host=All&var-Upstream=All&from=now-1h&to=now&kiosk=tv`
     console.log('openNginxMonitor', url)

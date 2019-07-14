@@ -24,8 +24,6 @@ spec:
         k8s.eip.work/layer: monitor
         k8s.eip.work/name: monitor-grafana
     spec:
-      imagePullSecrets:
-      - name: docker-liangzixin-top
       initContainers:
       - name: grafana-chown
         command: ["chown", "-R", "472:472", "/var/lib/grafana"]
@@ -175,11 +173,9 @@ spec:
         k8s.eip.work/layer: monitor
         k8s.eip.work/name: monitor-eureka
     spec:
-      imagePullSecrets:
-      - name: docker-liangzixin-top
       containers:
       - name: monitor-eureka
-        image: docker.liangzixin.top/library/monitor-eureka:0.1.1
+        image: eipwork/eip-monitor-eureka:1.0.0
         imagePullPolicy: Always
         env:
         - name: MONITOR_EUREKA_DEFAULT_ZONE
@@ -235,8 +231,6 @@ spec:
         k8s.eip.work/layer: monitor
         k8s.eip.work/name: monitor-prometheus
     spec:
-      imagePullSecrets:
-      - name: docker-liangzixin-top
       containers:
       - name: monitor-prometheus
         image: prom/prometheus:v2.10.0
